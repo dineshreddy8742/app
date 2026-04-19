@@ -63,8 +63,15 @@ export const api = {
   results: (studentId?: string) =>
     apiRequest(`/results${studentId ? `?student_id=${studentId}` : ''}`),
   notifications: () => apiRequest('/notifications'),
+  unreadCount: () => apiRequest<{ count: number }>('/notifications/unread-count'),
   markNotifRead: (id: string) => apiRequest(`/notifications/${id}/read`, 'POST'),
   createNotif: (data: any) => apiRequest('/notifications', 'POST', data),
+  materials: (className?: string) =>
+    apiRequest(`/materials${className ? `?class_name=${encodeURIComponent(className)}` : ''}`),
+  createMaterial: (data: any) => apiRequest('/materials', 'POST', data),
+  deleteMaterial: (id: string) => apiRequest(`/materials/${id}`, 'DELETE'),
+  publishResults: (exam_id: string, records: any[]) =>
+    apiRequest('/results/publish', 'POST', { exam_id, records }),
   leaves: () => apiRequest('/leaves'),
   applyLeave: (data: any) => apiRequest('/leaves', 'POST', data),
   approveLeave: (id: string) => apiRequest(`/leaves/${id}/approve`, 'POST'),

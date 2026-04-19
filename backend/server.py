@@ -18,7 +18,7 @@ import random
 from database import engine, AsyncSessionLocal, get_db
 from models import (
     Base, User, SchoolClass, Student, Teacher, Attendance, Fee, Payment,
-    TimetableSlot, Exam, Result, Notification, Leave,
+    TimetableSlot, Exam, Result, Notification, Leave, Material,
 )
 
 ROOT_DIR = Path(__file__).parent
@@ -128,8 +128,38 @@ class PaymentRequest(BaseModel):
 class CreateNotificationRequest(BaseModel):
     title: str
     message: str
-    type: Literal["announcement", "fee", "attendance", "general"] = "announcement"
+    type: Literal["announcement", "fee", "attendance", "general", "circular", "result", "meeting"] = "announcement"
     audience: str = "all"
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    meeting_url: Optional[str] = None
+
+
+class CreateMaterialRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    subject: Optional[str] = None
+    class_name: Optional[str] = None
+    file_url: str
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None  # pdf / image / video / link
+
+
+class CreateResultsRequest(BaseModel):
+    exam_id: str
+    records: List[dict]  # [{student_id, marks}]
+
+
+async def _notify(db: AsyncSession, title: str, message: str, audience: str,
+                  ntype: str = "general", attachment_url: Optional[str] = None,
+                  attachment_name: Optional[str] = None, meeting_url: Optional[str] = None):
+    n = Notification(
+        title=title, message=message, type=ntype, audience=audience,
+        attachment_url=attachment_url, attachment_name=attachment_name,
+        meeting_url=meeting_url,
+        created_at=datetime.now(timezone.utc), read_by=[],
+    )
+    db.add(n)
 
 
 class ApplyLeaveRequest(BaseModel):
@@ -417,6 +447,7 @@ async def mark_attendance(req: MarkAttendanceRequest,
                           user: dict = Depends(require_role("admin", "teacher")),
                           db: AsyncSession = Depends(get_db)):
     count = 0
+    absent_ids: List[str] = []
     for rec in req.records:
         sid = rec.get("student_id")
         status = rec.get("status")
@@ -434,9 +465,26 @@ async def mark_attendance(req: MarkAttendanceRequest,
             db.add(Attendance(student_id=sid, class_name=req.class_name, date=req.date,
                               status=status, marked_by=user["id"],
                               marked_at=datetime.now(timezone.utc)))
+        if status == "absent":
+            absent_ids.append(sid)
         count += 1
+    # Notify parents of absent students
+    for sid in absent_ids:
+        s = (await db.execute(select(Student).where(Student.id == sid))).scalar_one_or_none()
+        if not s:
+            continue
+        if s.parent_id:
+            await _notify(db,
+                          title=f"Absence: {s.name}",
+                          message=f"Your child {s.name} (Roll {s.roll_no}, {s.class_name}) was marked absent on {req.date}.",
+                          audience=s.parent_id, ntype="attendance")
+        # Also notify student
+        await _notify(db,
+                      title="You were marked absent",
+                      message=f"You were marked absent on {req.date} for {req.class_name}.",
+                      audience=s.user_id, ntype="attendance")
     await db.commit()
-    return {"ok": True, "count": count}
+    return {"ok": True, "count": count, "absent_count": len(absent_ids)}
 
 
 # ---------- Fees ----------
@@ -557,20 +605,26 @@ async def list_notifications(user: dict = Depends(get_current_user), db: AsyncSe
     rows = (await db.execute(q)).scalars().all()
     return [{"id": n.id, "title": n.title, "message": n.message, "type": n.type,
              "audience": n.audience, "created_at": n.created_at,
+             "attachment_url": n.attachment_url, "attachment_name": n.attachment_name,
+             "meeting_url": n.meeting_url,
              "is_read": user["id"] in (n.read_by or [])} for n in rows]
 
 
 @api_router.post("/notifications")
 async def create_notification(req: CreateNotificationRequest,
-                              user: dict = Depends(require_role("admin")),
+                              user: dict = Depends(require_role("admin", "teacher")),
                               db: AsyncSession = Depends(get_db)):
     n = Notification(title=req.title, message=req.message, type=req.type,
-                     audience=req.audience, created_at=datetime.now(timezone.utc), read_by=[])
+                     audience=req.audience, attachment_url=req.attachment_url,
+                     attachment_name=req.attachment_name, meeting_url=req.meeting_url,
+                     created_at=datetime.now(timezone.utc), read_by=[])
     db.add(n)
     await db.commit()
     await db.refresh(n)
     return {"id": n.id, "title": n.title, "message": n.message, "type": n.type,
-            "audience": n.audience, "created_at": n.created_at, "read_by": []}
+            "audience": n.audience, "attachment_url": n.attachment_url,
+            "attachment_name": n.attachment_name, "meeting_url": n.meeting_url,
+            "created_at": n.created_at, "read_by": []}
 
 
 @api_router.post("/notifications/{nid}/read")
@@ -581,6 +635,124 @@ async def mark_notif_read(nid: str, user: dict = Depends(get_current_user),
         n.read_by = (n.read_by or []) + [user["id"]]
         await db.commit()
     return {"ok": True}
+
+
+@api_router.get("/notifications/unread-count")
+async def unread_count(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    q = select(Notification).where(or_(
+        Notification.audience == "all",
+        Notification.audience == user["role"],
+        Notification.audience == user["id"],
+    ))
+    rows = (await db.execute(q)).scalars().all()
+    n = sum(1 for r in rows if user["id"] not in (r.read_by or []))
+    return {"count": n}
+
+
+# ---------- Materials ----------
+@api_router.get("/materials")
+async def list_materials(class_name: Optional[str] = None,
+                         user: dict = Depends(get_current_user),
+                         db: AsyncSession = Depends(get_db)):
+    q = select(Material).order_by(Material.created_at.desc())
+    if user["role"] == "student":
+        s = (await db.execute(select(Student).where(Student.user_id == user["id"]))).scalar_one_or_none()
+        if s:
+            q = q.where(or_(Material.class_name == s.class_name, Material.class_name.is_(None)))
+    elif user["role"] == "parent":
+        kids = (await db.execute(select(Student).where(Student.parent_id == user["id"]))).scalars().all()
+        class_names = list({k.class_name for k in kids})
+        if class_names:
+            q = q.where(or_(Material.class_name.in_(class_names), Material.class_name.is_(None)))
+    elif class_name:
+        q = q.where(Material.class_name == class_name)
+    rows = (await db.execute(q)).scalars().all()
+    return [{"id": m.id, "title": m.title, "description": m.description,
+             "subject": m.subject, "class_name": m.class_name, "file_url": m.file_url,
+             "file_name": m.file_name, "file_type": m.file_type,
+             "uploaded_by": m.uploaded_by, "uploaded_by_name": m.uploaded_by_name,
+             "created_at": m.created_at} for m in rows]
+
+
+@api_router.post("/materials")
+async def create_material(req: CreateMaterialRequest,
+                          user: dict = Depends(require_role("admin", "teacher")),
+                          db: AsyncSession = Depends(get_db)):
+    m = Material(title=req.title, description=req.description, subject=req.subject,
+                 class_name=req.class_name, file_url=req.file_url, file_name=req.file_name,
+                 file_type=req.file_type, uploaded_by=user["id"], uploaded_by_name=user["name"],
+                 created_at=datetime.now(timezone.utc))
+    db.add(m)
+    # auto-notify students of that class (or 'student' role if no class)
+    audience = "student"
+    if req.class_name:
+        # notify by class_name; will filter via audience=class-specific: fallback to 'student'
+        pass
+    await _notify(db,
+                  title=f"New Study Material: {req.title}",
+                  message=f"{user['name']} uploaded {req.file_name or req.title}" + (f" for {req.class_name}" if req.class_name else ""),
+                  audience=audience, ntype="circular",
+                  attachment_url=req.file_url, attachment_name=req.file_name)
+    await db.commit()
+    await db.refresh(m)
+    return {"id": m.id, "title": m.title, "file_url": m.file_url}
+
+
+@api_router.delete("/materials/{mid}")
+async def delete_material(mid: str, user: dict = Depends(require_role("admin", "teacher")),
+                          db: AsyncSession = Depends(get_db)):
+    m = (await db.execute(select(Material).where(Material.id == mid))).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "Not found")
+    await db.delete(m)
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------- Results publish ----------
+@api_router.post("/results/publish")
+async def publish_results(req: CreateResultsRequest,
+                          user: dict = Depends(require_role("admin", "teacher")),
+                          db: AsyncSession = Depends(get_db)):
+    exam = (await db.execute(select(Exam).where(Exam.id == req.exam_id))).scalar_one_or_none()
+    if not exam:
+        raise HTTPException(404, "Exam not found")
+
+    def grade_of(m, maxm):
+        p = (m / maxm * 100) if maxm else 0
+        if p >= 90: return "A+"
+        if p >= 80: return "A"
+        if p >= 70: return "B"
+        if p >= 60: return "C"
+        if p >= 50: return "D"
+        return "F"
+
+    created = 0
+    for rec in req.records:
+        sid = rec.get("student_id")
+        marks = float(rec.get("marks", 0))
+        if not sid:
+            continue
+        existing = (await db.execute(select(Result).where(
+            and_(Result.exam_id == exam.id, Result.student_id == sid)
+        ))).scalar_one_or_none()
+        g = grade_of(marks, exam.max_marks)
+        if existing:
+            existing.marks = marks
+            existing.grade = g
+        else:
+            db.add(Result(exam_id=exam.id, student_id=sid, marks=marks, grade=g))
+            created += 1
+        s = (await db.execute(select(Student).where(Student.id == sid))).scalar_one_or_none()
+        if s:
+            msg = f"Your {exam.name} result for {exam.subject} is out. Marks: {marks}/{exam.max_marks} ({g})."
+            await _notify(db, title=f"Result: {exam.name} - {exam.subject}",
+                          message=msg, audience=s.user_id, ntype="result")
+            if s.parent_id:
+                await _notify(db, title=f"{s.name}'s Result Published",
+                              message=f"{s.name}: {msg}", audience=s.parent_id, ntype="result")
+    await db.commit()
+    return {"ok": True, "published": len(req.records), "created": created}
 
 
 # ---------- Leaves ----------

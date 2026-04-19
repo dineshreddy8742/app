@@ -136,8 +136,26 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     type = Column(String(30), nullable=False, default="announcement")
     audience = Column(String(100), nullable=False, default="all", index=True)
+    attachment_url = Column(Text, nullable=True)      # base64 data URL or external URL
+    attachment_name = Column(String(300), nullable=True)
+    meeting_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
     read_by = Column(JSONB, nullable=False, default=list)
+
+
+class Material(Base):
+    __tablename__ = "sch_materials"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    subject = Column(String(100), nullable=True)
+    class_name = Column(String(50), nullable=True, index=True)
+    file_url = Column(Text, nullable=False)  # base64 data URL or external URL
+    file_name = Column(String(300), nullable=True)
+    file_type = Column(String(50), nullable=True)  # pdf, image, video, link
+    uploaded_by = Column(String(36), nullable=False)
+    uploaded_by_name = Column(String(200), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
 
 
 class Leave(Base):
