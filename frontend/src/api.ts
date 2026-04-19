@@ -70,4 +70,6 @@ export const api = {
   approveLeave: (id: string) => apiRequest(`/leaves/${id}/approve`, 'POST'),
   rejectLeave: (id: string) => apiRequest(`/leaves/${id}/reject`, 'POST'),
   createStudent: (data: any) => apiRequest('/students', 'POST', data),
+  updateStudent: (id: string, data: any) => apiRequest(`/students/${id}`, 'PUT', data),
+  deleteStudent: (id: string) => apiRequest(`/students/${id}`, 'DELETE'),
 };

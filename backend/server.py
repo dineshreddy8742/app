@@ -104,7 +104,7 @@ class UserPublic(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str  # email OR roll_no
     password: str
 
 
@@ -152,10 +152,19 @@ class CreateStudentRequest(BaseModel):
 # ---------- Auth ----------
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(User).where(User.email == req.email.lower()))
-    u = res.scalar_one_or_none()
+    identifier = req.email.strip()
+    u = None
+    # allow login with either email or roll_no
+    if "@" in identifier:
+        res = await db.execute(select(User).where(User.email == identifier.lower()))
+        u = res.scalar_one_or_none()
+    else:
+        # lookup by roll_no via student
+        s = (await db.execute(select(Student).where(Student.roll_no == identifier))).scalar_one_or_none()
+        if s:
+            u = (await db.execute(select(User).where(User.id == s.user_id))).scalar_one_or_none()
     if not u or not verify_password(req.password, u.password):
-        raise HTTPException(401, "Invalid email or password")
+        raise HTTPException(401, "Invalid credentials")
     return {"token": create_token(u.id, u.role), "user": user_to_dict(u)}
 
 
@@ -284,11 +293,14 @@ async def get_student(student_id: str, user: dict = Depends(get_current_user), d
 
 
 @api_router.post("/students")
-async def create_student(req: CreateStudentRequest, user: dict = Depends(require_role("admin")),
+async def create_student(req: CreateStudentRequest, user: dict = Depends(require_role("admin", "teacher")),
                          db: AsyncSession = Depends(get_db)):
     existing = (await db.execute(select(User).where(User.email == req.email.lower()))).scalar_one_or_none()
     if existing:
         raise HTTPException(400, "Email already registered")
+    existing_roll = (await db.execute(select(Student).where(Student.roll_no == req.roll_no))).scalar_one_or_none()
+    if existing_roll:
+        raise HTTPException(400, "Roll number already exists")
     u = User(name=req.name, email=req.email.lower(), password=hash_password(req.password),
              role="student", avatar=req.avatar, phone=req.phone)
     db.add(u)
@@ -298,7 +310,64 @@ async def create_student(req: CreateStudentRequest, user: dict = Depends(require
     db.add(s)
     await db.commit()
     await db.refresh(s)
-    return {"id": s.id, "user_id": u.id}
+    return {"id": s.id, "user_id": u.id, "roll_no": s.roll_no}
+
+
+class UpdateStudentRequest(BaseModel):
+    name: Optional[str] = None
+    roll_no: Optional[str] = None
+    class_name: Optional[str] = None
+    section: Optional[str] = None
+    phone: Optional[str] = None
+    avatar: Optional[str] = None
+    password: Optional[str] = None  # reset password
+
+
+@api_router.put("/students/{student_id}")
+async def update_student(student_id: str, req: UpdateStudentRequest,
+                         user: dict = Depends(require_role("admin", "teacher")),
+                         db: AsyncSession = Depends(get_db)):
+    s = (await db.execute(select(Student).where(Student.id == student_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Student not found")
+    if req.roll_no and req.roll_no != s.roll_no:
+        existing = (await db.execute(select(Student).where(
+            and_(Student.roll_no == req.roll_no, Student.id != student_id)
+        ))).scalar_one_or_none()
+        if existing:
+            raise HTTPException(400, "Roll number already in use")
+        s.roll_no = req.roll_no
+    if req.name:
+        s.name = req.name
+        # sync user name
+        u = (await db.execute(select(User).where(User.id == s.user_id))).scalar_one_or_none()
+        if u:
+            u.name = req.name
+    if req.class_name: s.class_name = req.class_name
+    if req.section: s.section = req.section
+    if req.phone is not None: s.phone = req.phone
+    if req.avatar is not None: s.avatar = req.avatar
+    if req.password:
+        u = (await db.execute(select(User).where(User.id == s.user_id))).scalar_one_or_none()
+        if u:
+            u.password = hash_password(req.password)
+    await db.commit()
+    await db.refresh(s)
+    return student_to_dict(s)
+
+
+@api_router.delete("/students/{student_id}")
+async def delete_student(student_id: str, user: dict = Depends(require_role("admin", "teacher")),
+                         db: AsyncSession = Depends(get_db)):
+    s = (await db.execute(select(Student).where(Student.id == student_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Student not found")
+    u = (await db.execute(select(User).where(User.id == s.user_id))).scalar_one_or_none()
+    await db.delete(s)
+    if u:
+        await db.delete(u)
+    await db.commit()
+    return {"ok": True}
 
 
 # ---------- Teachers ----------

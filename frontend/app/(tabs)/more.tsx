@@ -61,22 +61,9 @@ export default function More() {
           testID="logout-btn"
           style={[styles.row, { marginTop: 24, borderColor: colors.coralBorder, backgroundColor: colors.coral }]}
           onPress={() => {
-            console.log('[LOGOUT] Button pressed, Platform.OS:', Platform.OS);
             if (Platform.OS === 'web') {
-              console.log('[LOGOUT] Web platform detected');
-              if (typeof window !== 'undefined') {
-                console.log('[LOGOUT] Window is defined, showing confirm');
-                const confirmed = window.confirm('Sign out?');
-                console.log('[LOGOUT] Confirm result:', confirmed);
-                if (confirmed) {
-                  console.log('[LOGOUT] Calling logout()');
-                  logout();
-                }
-              } else {
-                console.log('[LOGOUT] Window is undefined');
-              }
+              logout();
             } else {
-              console.log('[LOGOUT] Native platform, showing Alert');
               Alert.alert('Sign out', 'Are you sure?', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Sign out', style: 'destructive', onPress: () => { logout(); } },

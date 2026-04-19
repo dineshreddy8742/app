@@ -72,7 +72,7 @@ export default function Login() {
               <TextInput
                 testID="login-email-input"
                 style={styles.input}
-                placeholder="you@school.com"
+                placeholder="you@school.com or roll no"
                 placeholderTextColor={colors.textTertiary}
                 value={email}
                 onChangeText={setEmail}
