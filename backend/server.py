@@ -19,6 +19,7 @@ from database import engine, AsyncSessionLocal, get_db
 from models import (
     Base, User, SchoolClass, Student, Teacher, Attendance, Fee, Payment,
     TimetableSlot, Exam, Result, Notification, Leave, Material, Institution,
+    Homework, HomeworkSubmission,
 )
 
 ROOT_DIR = Path(__file__).parent
@@ -999,6 +1000,183 @@ async def attendance_analytics(user: dict = Depends(require_role("admin", "teach
 def sa_int():
     from sqlalchemy import Integer
     return Integer
+
+
+# ---------- Onboarding Checklist (admin) ----------
+@api_router.get("/onboarding")
+async def onboarding(user: dict = Depends(require_role("admin", "superadmin")),
+                     db: AsyncSession = Depends(get_db)):
+    classes = (await db.execute(select(func.count()).select_from(SchoolClass))).scalar_one()
+    teachers = (await db.execute(select(func.count()).select_from(Teacher))).scalar_one()
+    students = (await db.execute(select(func.count()).select_from(Student))).scalar_one()
+    timetable = (await db.execute(select(func.count()).select_from(TimetableSlot))).scalar_one()
+    fees = (await db.execute(select(func.count()).select_from(Fee))).scalar_one()
+    exams = (await db.execute(select(func.count()).select_from(Exam))).scalar_one()
+    notifs = (await db.execute(select(func.count()).select_from(Notification))).scalar_one()
+    materials = (await db.execute(select(func.count()).select_from(Material))).scalar_one()
+    steps = [
+        {"key": "classes", "label": "Add classes", "done": classes > 0, "count": classes},
+        {"key": "teachers", "label": "Onboard teachers", "done": teachers > 0, "count": teachers},
+        {"key": "students", "label": "Add students", "done": students > 0, "count": students},
+        {"key": "timetable", "label": "Build timetable", "done": timetable > 0, "count": timetable},
+        {"key": "fees", "label": "Set up fees", "done": fees > 0, "count": fees},
+        {"key": "exams", "label": "Create exams", "done": exams > 0, "count": exams},
+        {"key": "announcement", "label": "Send first announcement", "done": notifs > 0, "count": notifs},
+        {"key": "materials", "label": "Upload study material", "done": materials > 0, "count": materials},
+    ]
+    done = sum(1 for s in steps if s["done"])
+    return {"total": len(steps), "done": done, "pct": round(done / len(steps) * 100), "steps": steps}
+
+
+# ---------- Homework ----------
+class CreateHomeworkRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    subject: Optional[str] = None
+    class_name: str
+    due_date: str
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+
+
+class SubmitHomeworkRequest(BaseModel):
+    homework_id: str
+    content: Optional[str] = None
+    attachment_url: Optional[str] = None
+
+
+class GradeSubmissionRequest(BaseModel):
+    grade: str
+    feedback: Optional[str] = None
+
+
+@api_router.get("/homework")
+async def list_homework(user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    q = select(Homework).order_by(Homework.due_date.desc())
+    if user["role"] == "student":
+        s = (await db.execute(select(Student).where(Student.user_id == user["id"]))).scalar_one_or_none()
+        if s:
+            q = q.where(Homework.class_name == s.class_name)
+    elif user["role"] == "parent":
+        kids = (await db.execute(select(Student.class_name).where(Student.parent_id == user["id"]))).all()
+        class_names = list({r[0] for r in kids})
+        if class_names:
+            q = q.where(Homework.class_name.in_(class_names))
+    rows = (await db.execute(q)).scalars().all()
+    out = []
+    for h in rows:
+        sub_count = (await db.execute(select(func.count()).select_from(HomeworkSubmission).where(
+            HomeworkSubmission.homework_id == h.id))).scalar_one()
+        my_sub = None
+        if user["role"] == "student":
+            s = (await db.execute(select(Student).where(Student.user_id == user["id"]))).scalar_one_or_none()
+            if s:
+                mysub = (await db.execute(select(HomeworkSubmission).where(and_(
+                    HomeworkSubmission.homework_id == h.id, HomeworkSubmission.student_id == s.id
+                )))).scalar_one_or_none()
+                if mysub:
+                    my_sub = {"id": mysub.id, "content": mysub.content, "grade": mysub.grade,
+                              "feedback": mysub.feedback, "submitted_at": mysub.submitted_at}
+        out.append({"id": h.id, "title": h.title, "description": h.description,
+                    "subject": h.subject, "class_name": h.class_name, "due_date": h.due_date,
+                    "attachment_url": h.attachment_url, "attachment_name": h.attachment_name,
+                    "created_by_name": h.created_by_name, "created_at": h.created_at,
+                    "submission_count": sub_count, "my_submission": my_sub})
+    return out
+
+
+@api_router.post("/homework")
+async def create_homework(req: CreateHomeworkRequest,
+                          user: dict = Depends(require_role("admin", "teacher")),
+                          db: AsyncSession = Depends(get_db)):
+    h = Homework(title=req.title, description=req.description, subject=req.subject,
+                 class_name=req.class_name, due_date=req.due_date,
+                 attachment_url=req.attachment_url, attachment_name=req.attachment_name,
+                 created_by=user["id"], created_by_name=user["name"],
+                 created_at=datetime.now(timezone.utc))
+    db.add(h)
+    await _notify(db, title=f"New Homework: {req.title}",
+                  message=f"Due {req.due_date} · {req.class_name}",
+                  audience="student", ntype="circular")
+    await db.commit()
+    await db.refresh(h)
+    return {"id": h.id, "title": h.title}
+
+
+@api_router.post("/homework/submit")
+async def submit_homework(req: SubmitHomeworkRequest,
+                          user: dict = Depends(require_role("student")),
+                          db: AsyncSession = Depends(get_db)):
+    s = (await db.execute(select(Student).where(Student.user_id == user["id"]))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(400, "Student profile missing")
+    existing = (await db.execute(select(HomeworkSubmission).where(and_(
+        HomeworkSubmission.homework_id == req.homework_id,
+        HomeworkSubmission.student_id == s.id,
+    )))).scalar_one_or_none()
+    if existing:
+        existing.content = req.content
+        existing.attachment_url = req.attachment_url
+        existing.submitted_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"ok": True, "id": existing.id, "updated": True}
+    sub = HomeworkSubmission(homework_id=req.homework_id, student_id=s.id,
+                             content=req.content, attachment_url=req.attachment_url,
+                             submitted_at=datetime.now(timezone.utc))
+    db.add(sub)
+    await db.commit()
+    await db.refresh(sub)
+    return {"ok": True, "id": sub.id}
+
+
+@api_router.get("/homework/{hid}/submissions")
+async def list_submissions(hid: str, user: dict = Depends(require_role("admin", "teacher")),
+                           db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(HomeworkSubmission).where(
+        HomeworkSubmission.homework_id == hid))).scalars().all()
+    out = []
+    for s in rows:
+        st = (await db.execute(select(Student).where(Student.id == s.student_id))).scalar_one_or_none()
+        out.append({"id": s.id, "student_id": s.student_id, "student_name": st.name if st else "?",
+                    "roll_no": st.roll_no if st else "", "content": s.content,
+                    "attachment_url": s.attachment_url, "submitted_at": s.submitted_at,
+                    "grade": s.grade, "feedback": s.feedback})
+    return out
+
+
+@api_router.put("/homework/submissions/{sid}/grade")
+async def grade_sub(sid: str, req: GradeSubmissionRequest,
+                    user: dict = Depends(require_role("admin", "teacher")),
+                    db: AsyncSession = Depends(get_db)):
+    sub = (await db.execute(select(HomeworkSubmission).where(
+        HomeworkSubmission.id == sid))).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(404, "Not found")
+    sub.grade = req.grade
+    sub.feedback = req.feedback
+    # Notify student
+    st = (await db.execute(select(Student).where(Student.id == sub.student_id))).scalar_one_or_none()
+    if st:
+        await _notify(db, title="Homework Graded",
+                      message=f"Your homework was graded: {req.grade}. {req.feedback or ''}".strip(),
+                      audience=st.user_id, ntype="result")
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------- Class Rank (for results) ----------
+@api_router.get("/exams/{eid}/ranking")
+async def exam_ranking(eid: str, user: dict = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(Result).where(Result.exam_id == eid)
+                             .order_by(Result.marks.desc()))).scalars().all()
+    out = []
+    for rank, r in enumerate(rows, 1):
+        st = (await db.execute(select(Student).where(Student.id == r.student_id))).scalar_one_or_none()
+        out.append({"rank": rank, "student_id": r.student_id,
+                    "student_name": st.name if st else "?", "roll_no": st.roll_no if st else "",
+                    "marks": float(r.marks), "grade": r.grade})
+    return out
 
 
 # ---------- Seed ----------

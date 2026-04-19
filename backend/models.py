@@ -176,6 +176,33 @@ class Material(Base):
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
 
 
+class Homework(Base):
+    __tablename__ = "sch_homework"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    title = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    subject = Column(String(100), nullable=True)
+    class_name = Column(String(50), nullable=False, index=True)
+    due_date = Column(String(10), nullable=False)
+    attachment_url = Column(Text, nullable=True)
+    attachment_name = Column(String(300), nullable=True)
+    created_by = Column(String(36), nullable=False)
+    created_by_name = Column(String(200), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class HomeworkSubmission(Base):
+    __tablename__ = "sch_homework_submissions"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    homework_id = Column(String(36), ForeignKey("sch_homework.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(String(36), ForeignKey("sch_students.id", ondelete="CASCADE"), nullable=False, index=True)
+    content = Column(Text, nullable=True)
+    attachment_url = Column(Text, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    grade = Column(String(10), nullable=True)
+    feedback = Column(Text, nullable=True)
+
+
 class Leave(Base):
     __tablename__ = "sch_leaves"
     id = Column(String(36), primary_key=True, default=_uuid)
