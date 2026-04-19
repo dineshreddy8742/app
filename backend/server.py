@@ -18,7 +18,7 @@ import random
 from database import engine, AsyncSessionLocal, get_db
 from models import (
     Base, User, SchoolClass, Student, Teacher, Attendance, Fee, Payment,
-    TimetableSlot, Exam, Result, Notification, Leave, Material,
+    TimetableSlot, Exam, Result, Notification, Leave, Material, Institution,
 )
 
 ROOT_DIR = Path(__file__).parent
@@ -805,12 +805,239 @@ async def root():
     return {"message": "Scholara — School Management System API", "version": "2.0.0 (Supabase)"}
 
 
+# ---------- Institutions (super-admin) ----------
+class InstitutionRequest(BaseModel):
+    name: str
+    type: Literal["school", "college", "coaching"] = "school"
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    logo: Optional[str] = None
+    plan: Optional[str] = "free"
+    active: Optional[bool] = True
+
+
+def inst_to_dict(i: Institution) -> dict:
+    return {"id": i.id, "name": i.name, "type": i.type,
+            "city": i.city, "state": i.state, "country": i.country, "address": i.address,
+            "phone": i.phone, "email": i.email, "logo": i.logo,
+            "plan": i.plan, "active": i.active, "created_at": i.created_at}
+
+
+@api_router.get("/institutions")
+async def list_institutions(user: dict = Depends(require_role("admin", "superadmin")),
+                            db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(Institution).order_by(Institution.created_at.desc()))).scalars().all()
+    return [inst_to_dict(i) for i in rows]
+
+
+@api_router.post("/institutions")
+async def create_institution(req: InstitutionRequest,
+                             user: dict = Depends(require_role("admin", "superadmin")),
+                             db: AsyncSession = Depends(get_db)):
+    i = Institution(**req.model_dump(), created_at=datetime.now(timezone.utc))
+    db.add(i)
+    await db.commit()
+    await db.refresh(i)
+    return inst_to_dict(i)
+
+
+@api_router.put("/institutions/{iid}")
+async def update_institution(iid: str, req: InstitutionRequest,
+                             user: dict = Depends(require_role("admin", "superadmin")),
+                             db: AsyncSession = Depends(get_db)):
+    i = (await db.execute(select(Institution).where(Institution.id == iid))).scalar_one_or_none()
+    if not i:
+        raise HTTPException(404, "Not found")
+    for k, v in req.model_dump().items():
+        setattr(i, k, v)
+    await db.commit()
+    await db.refresh(i)
+    return inst_to_dict(i)
+
+
+@api_router.delete("/institutions/{iid}")
+async def delete_institution(iid: str, user: dict = Depends(require_role("admin", "superadmin")),
+                             db: AsyncSession = Depends(get_db)):
+    i = (await db.execute(select(Institution).where(Institution.id == iid))).scalar_one_or_none()
+    if not i:
+        raise HTTPException(404, "Not found")
+    await db.delete(i)
+    await db.commit()
+    return {"ok": True}
+
+
+# ---------- Bulk CSV Import ----------
+class CSVImportRequest(BaseModel):
+    csv: str  # first line headers: name,email,roll_no,class_name,section,phone,password (password optional)
+
+
+@api_router.post("/students/import")
+async def import_students_csv(req: CSVImportRequest,
+                              user: dict = Depends(require_role("admin", "teacher")),
+                              db: AsyncSession = Depends(get_db)):
+    import csv
+    from io import StringIO
+    reader = csv.DictReader(StringIO(req.csv.strip()))
+    created = 0
+    skipped = 0
+    errors: List[str] = []
+    for idx, row in enumerate(reader, start=2):
+        name = (row.get("name") or "").strip()
+        email = (row.get("email") or "").strip().lower()
+        roll_no = (row.get("roll_no") or "").strip()
+        class_name = (row.get("class_name") or "").strip()
+        section = (row.get("section") or "A").strip()
+        phone = (row.get("phone") or "").strip() or None
+        password = (row.get("password") or "student123").strip()
+        if not name or not email or not roll_no or not class_name:
+            errors.append(f"Row {idx}: missing required fields")
+            skipped += 1
+            continue
+        existing_user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        existing_roll = (await db.execute(select(Student).where(Student.roll_no == roll_no))).scalar_one_or_none()
+        if existing_user or existing_roll:
+            errors.append(f"Row {idx} ({email}/{roll_no}): already exists")
+            skipped += 1
+            continue
+        u = User(name=name, email=email, password=hash_password(password),
+                 role="student", phone=phone, created_at=datetime.now(timezone.utc))
+        db.add(u)
+        await db.flush()
+        db.add(Student(user_id=u.id, name=name, email=email, roll_no=roll_no,
+                       class_name=class_name, section=section, phone=phone))
+        created += 1
+    await db.commit()
+    return {"ok": True, "created": created, "skipped": skipped, "errors": errors}
+
+
+# ---------- Attendance Analytics ----------
+@api_router.get("/attendance/analytics")
+async def attendance_analytics(user: dict = Depends(require_role("admin", "teacher", "superadmin")),
+                               db: AsyncSession = Depends(get_db)):
+    today = datetime.now(timezone.utc).date()
+    today_str = today.strftime("%Y-%m-%d")
+    # Today
+    total_today = (await db.execute(select(func.count()).select_from(Attendance).where(
+        Attendance.date == today_str))).scalar_one()
+    present_today = (await db.execute(select(func.count()).select_from(Attendance).where(
+        and_(Attendance.date == today_str, Attendance.status == "present")))).scalar_one()
+    absent_today = (await db.execute(select(func.count()).select_from(Attendance).where(
+        and_(Attendance.date == today_str, Attendance.status == "absent")))).scalar_one()
+    late_today = (await db.execute(select(func.count()).select_from(Attendance).where(
+        and_(Attendance.date == today_str, Attendance.status == "late")))).scalar_one()
+
+    # Last 7 days trend
+    week = []
+    for i in range(6, -1, -1):
+        d = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        total = (await db.execute(select(func.count()).select_from(Attendance).where(
+            Attendance.date == d))).scalar_one()
+        present = (await db.execute(select(func.count()).select_from(Attendance).where(
+            and_(Attendance.date == d, Attendance.status == "present")))).scalar_one()
+        week.append({"date": d, "total": total, "present": present,
+                     "pct": round((present / total * 100) if total else 0, 1)})
+
+    # Monthly
+    month_start = today.replace(day=1).strftime("%Y-%m-%d")
+    total_month = (await db.execute(select(func.count()).select_from(Attendance).where(
+        Attendance.date >= month_start))).scalar_one()
+    present_month = (await db.execute(select(func.count()).select_from(Attendance).where(
+        and_(Attendance.date >= month_start, Attendance.status == "present")))).scalar_one()
+
+    # Yearly
+    year_start = today.replace(month=1, day=1).strftime("%Y-%m-%d")
+    total_year = (await db.execute(select(func.count()).select_from(Attendance).where(
+        Attendance.date >= year_start))).scalar_one()
+    present_year = (await db.execute(select(func.count()).select_from(Attendance).where(
+        and_(Attendance.date >= year_start, Attendance.status == "present")))).scalar_one()
+
+    # Cumulative (all-time)
+    total_all = (await db.execute(select(func.count()).select_from(Attendance))).scalar_one()
+    present_all = (await db.execute(select(func.count()).select_from(Attendance).where(
+        Attendance.status == "present"))).scalar_one()
+
+    # Class-wise today
+    class_rows = (await db.execute(
+        select(Attendance.class_name,
+               func.count().label("total"),
+               func.sum(func.cast(Attendance.status == "present", sa_int())).label("present"))
+        .where(Attendance.date == today_str)
+        .group_by(Attendance.class_name)
+    )).all()
+    # Fallback for sum syntax: simpler approach
+    class_wise = []
+    names = set(r[0] for r in (await db.execute(select(Attendance.class_name).where(
+        Attendance.date == today_str).distinct())).all())
+    for cn in names:
+        t = (await db.execute(select(func.count()).select_from(Attendance).where(
+            and_(Attendance.class_name == cn, Attendance.date == today_str)))).scalar_one()
+        p = (await db.execute(select(func.count()).select_from(Attendance).where(
+            and_(Attendance.class_name == cn, Attendance.date == today_str,
+                 Attendance.status == "present")))).scalar_one()
+        class_wise.append({"class_name": cn, "present": p, "total": t,
+                           "pct": round((p / t * 100) if t else 0, 1)})
+
+    return {
+        "today": {"total": total_today, "present": present_today,
+                  "absent": absent_today, "late": late_today,
+                  "pct": round((present_today / total_today * 100) if total_today else 0, 1)},
+        "week_trend": week,
+        "month": {"total": total_month, "present": present_month,
+                  "pct": round((present_month / total_month * 100) if total_month else 0, 1)},
+        "year": {"total": total_year, "present": present_year,
+                 "pct": round((present_year / total_year * 100) if total_year else 0, 1)},
+        "all_time": {"total": total_all, "present": present_all,
+                     "pct": round((present_all / total_all * 100) if total_all else 0, 1)},
+        "class_wise_today": sorted(class_wise, key=lambda x: -x["pct"]),
+    }
+
+
+def sa_int():
+    from sqlalchemy import Integer
+    return Integer
+
+
 # ---------- Seed ----------
 async def seed_data():
     async with AsyncSessionLocal() as db:
+        # idempotent super-admin + institutions
+        existing_super = (await db.execute(select(User).where(User.email == "superadmin@school.com"))).scalar_one_or_none()
+        inst_count = (await db.execute(select(func.count()).select_from(Institution))).scalar_one()
+        if not existing_super:
+            now = datetime.now(timezone.utc)
+            db.add(User(name="Super Admin", email="superadmin@school.com",
+                        password=hash_password("super123"), role="superadmin",
+                        phone="+1000000000", created_at=now))
+            await db.commit()
+            logger.info("Seeded super-admin")
+        if inst_count == 0:
+            now = datetime.now(timezone.utc)
+            db.add_all([
+                Institution(name="Scholara High School", type="school",
+                            city="San Francisco", state="CA", country="USA",
+                            address="1 Market St", phone="+14155551234",
+                            email="info@scholarahs.edu", plan="pro", active=True,
+                            created_at=now),
+                Institution(name="Scholara College of Engineering", type="college",
+                            city="Bangalore", state="KA", country="India",
+                            address="MG Road", phone="+918012341234",
+                            email="info@scholaraeng.ac.in", plan="enterprise", active=True,
+                            created_at=now),
+                Institution(name="Bright Future Coaching", type="coaching",
+                            city="Mumbai", state="MH", country="India",
+                            phone="+912299999999", plan="free", active=True,
+                            created_at=now),
+            ])
+            await db.commit()
+            logger.info("Seeded 3 institutions")
+
         count = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-        if count > 0:
-            logger.info("Database already seeded (%s users)", count)
+        if count > 2:  # super-admin + institutions only
+            logger.info("Main data already seeded (%s users)", count)
             return
         logger.info("Seeding Supabase database...")
         now = datetime.now(timezone.utc)

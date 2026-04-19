@@ -31,9 +31,22 @@ export default function Students() {
   const [items, setItems] = useState<Student[]>([]);
   const [q, setQ] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [csvModal, setCsvModal] = useState(false);
+  const [csvText, setCsvText] = useState('name,email,roll_no,class_name,section,phone,password\n');
+  const [csvSaving, setCsvSaving] = useState(false);
   const [form, setForm] = useState<any>(emptyForm);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const runImport = async () => {
+    setCsvSaving(true);
+    try {
+      const r: any = await api.importStudentsCSV(csvText);
+      setCsvModal(false);
+      await load();
+      Alert.alert('Import done', `Created: ${r.created}, Skipped: ${r.skipped}${r.errors?.length ? '\n' + r.errors.slice(0, 5).join('\n') : ''}`);
+    } catch (e: any) { Alert.alert('Error', e.message); } finally { setCsvSaving(false); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,10 +145,16 @@ export default function Students() {
             <Text style={styles.sub}>{items.length} total</Text>
           </View>
           {canManage && (
-            <TouchableOpacity testID="add-student-btn" style={styles.addBtn} onPress={openAdd}>
-              <Feather name="plus" size={18} color={colors.white} />
-              <Text style={styles.addText}>Add</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity testID="import-csv-btn" style={[styles.addBtn, { backgroundColor: colors.textPrimary }]} onPress={() => setCsvModal(true)}>
+                <Feather name="upload" size={16} color={colors.white} />
+                <Text style={styles.addText}>Import</Text>
+              </TouchableOpacity>
+              <TouchableOpacity testID="add-student-btn" style={styles.addBtn} onPress={openAdd}>
+                <Feather name="plus" size={18} color={colors.white} />
+                <Text style={styles.addText}>Add</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -181,6 +200,36 @@ export default function Students() {
           </View>
         )}
       </ScrollView>
+
+      <Modal visible={csvModal} animationType="slide" transparent onRequestClose={() => setCsvModal(false)}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.modalCard}>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={styles.modalTitle}>Bulk Import (CSV)</Text>
+                <TouchableOpacity onPress={() => setCsvModal(false)} testID="close-csv">
+                  <Feather name="x" size={22} color={colors.textPrimary} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.label}>Paste CSV (headers: name,email,roll_no,class_name,section,phone,password)</Text>
+              <TextInput
+                testID="csv-textarea"
+                multiline
+                style={[styles.input, { height: 220, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 }]}
+                value={csvText}
+                onChangeText={setCsvText}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="name,email,roll_no,class_name,section,phone,password\nAlex Doe,alex@school.com,10B03,10-B,B,+1234,pass123"
+                placeholderTextColor={colors.textTertiary}
+              />
+              <TouchableOpacity testID="run-import-btn" style={styles.primaryBtn} onPress={runImport} disabled={csvSaving}>
+                {csvSaving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.primaryBtnText}>Import Students</Text>}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal visible={modalOpen} animationType="slide" transparent onRequestClose={() => setModalOpen(false)}>
         <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

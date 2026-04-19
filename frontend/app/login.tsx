@@ -18,6 +18,7 @@ import { useAuth } from '../src/auth';
 import { colors, fonts, radius, spacing, brutalShadow, softShadow } from '../src/theme';
 
 const DEMO_ACCOUNTS = [
+  { role: 'Super', email: 'superadmin@school.com', password: 'super123', color: colors.warning, border: colors.warningBorder },
   { role: 'Admin', email: 'admin@school.com', password: 'admin123', color: colors.primaryLight, border: colors.primary },
   { role: 'Teacher', email: 'teacher@school.com', password: 'teacher123', color: colors.mint, border: colors.mintBorder },
   { role: 'Student', email: 'student@school.com', password: 'student123', color: colors.peach, border: colors.peachBorder },

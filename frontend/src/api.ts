@@ -72,6 +72,12 @@ export const api = {
   deleteMaterial: (id: string) => apiRequest(`/materials/${id}`, 'DELETE'),
   publishResults: (exam_id: string, records: any[]) =>
     apiRequest('/results/publish', 'POST', { exam_id, records }),
+  institutions: () => apiRequest('/institutions'),
+  createInstitution: (data: any) => apiRequest('/institutions', 'POST', data),
+  updateInstitution: (id: string, data: any) => apiRequest(`/institutions/${id}`, 'PUT', data),
+  deleteInstitution: (id: string) => apiRequest(`/institutions/${id}`, 'DELETE'),
+  importStudentsCSV: (csv: string) => apiRequest('/students/import', 'POST', { csv }),
+  attendanceAnalytics: () => apiRequest('/attendance/analytics'),
   leaves: () => apiRequest('/leaves'),
   applyLeave: (data: any) => apiRequest('/leaves', 'POST', data),
   approveLeave: (id: string) => apiRequest(`/leaves/${id}/approve`, 'POST'),

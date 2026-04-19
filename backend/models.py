@@ -23,9 +23,27 @@ class User(Base):
     name = Column(String(200), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, index=True)  # admin/teacher/student/parent
+    role = Column(String(20), nullable=False, index=True)  # superadmin/admin/teacher/student/parent
     avatar = Column(Text, nullable=True)
     phone = Column(String(40), nullable=True)
+    institution_id = Column(String(36), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class Institution(Base):
+    __tablename__ = "sch_institutions"
+    id = Column(String(36), primary_key=True, default=_uuid)
+    name = Column(String(200), nullable=False)
+    type = Column(String(20), nullable=False)  # school / college / coaching
+    city = Column(String(100), nullable=True)
+    state = Column(String(100), nullable=True)
+    country = Column(String(100), nullable=True)
+    address = Column(Text, nullable=True)
+    phone = Column(String(40), nullable=True)
+    email = Column(String(255), nullable=True)
+    logo = Column(Text, nullable=True)
+    plan = Column(String(30), nullable=False, default="free")  # free/pro/enterprise
+    active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
 
 

@@ -34,6 +34,10 @@ export default function More() {
     { icon: 'award', label: 'Exams & Results', to: '/results', color: colors.peach, border: colors.peachBorder },
     { icon: 'file-text', label: 'Leave Requests', to: '/leaves', color: colors.mint, border: colors.mintBorder },
   ];
+  if (user?.role === 'admin' || user?.role === 'superadmin') {
+    items.push({ icon: 'home', label: 'Institutions', to: '/institutions', color: colors.primaryLight, border: colors.primary });
+    items.push({ icon: 'bar-chart-2', label: 'Attendance Analytics', to: '/analytics', color: colors.lavender, border: colors.lavenderBorder });
+  }
   if (user?.role === 'admin') {
     items.push({ icon: 'briefcase', label: 'Teachers', to: '/teachers', color: colors.primaryLight, border: colors.primary });
   }
