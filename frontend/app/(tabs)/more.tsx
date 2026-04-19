@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -61,10 +61,27 @@ export default function More() {
           testID="logout-btn"
           style={[styles.row, { marginTop: 24, borderColor: colors.coralBorder, backgroundColor: colors.coral }]}
           onPress={() => {
-            Alert.alert('Sign out', 'Are you sure?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Sign out', style: 'destructive', onPress: logout },
-            ]);
+            console.log('[LOGOUT] Button pressed, Platform.OS:', Platform.OS);
+            if (Platform.OS === 'web') {
+              console.log('[LOGOUT] Web platform detected');
+              if (typeof window !== 'undefined') {
+                console.log('[LOGOUT] Window is defined, showing confirm');
+                const confirmed = window.confirm('Sign out?');
+                console.log('[LOGOUT] Confirm result:', confirmed);
+                if (confirmed) {
+                  console.log('[LOGOUT] Calling logout()');
+                  logout();
+                }
+              } else {
+                console.log('[LOGOUT] Window is undefined');
+              }
+            } else {
+              console.log('[LOGOUT] Native platform, showing Alert');
+              Alert.alert('Sign out', 'Are you sure?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sign out', style: 'destructive', onPress: () => { logout(); } },
+              ]);
+            }
           }}
         >
           <View style={[styles.iconBox, { backgroundColor: colors.white, borderColor: colors.coralBorder }]}>
