@@ -1,0 +1,164 @@
+{
+  "app_identity": {
+    "theme": "Light",
+    "archetype": "3 (Pastel & Soft) with Neo-Brutalist E1 Twist",
+    "vibe": "Optimistic, Structured, Approachable, Professional",
+    "description": "A mobile-first school management system that avoids the stale, overly corporate look. It uses soft pastel backgrounds anchored by crisp 1px dark borders and deep charcoal typography to balance approachability (for students/parents) with high-density utility (for teachers/admins)."
+  },
+  "typography": {
+    "headings": {
+      "family": "Outfit",
+      "weights": ["600", "700", "800"],
+      "usage": "Headers, role titles, key metrics"
+    },
+    "body": {
+      "family": "Manrope",
+      "weights": ["400", "500", "600"],
+      "usage": "Dashboard cards, lists, descriptions, navigation labels"
+    },
+    "scale": {
+      "h1": "32px",
+      "h2": "24px",
+      "h3": "20px",
+      "body": "16px",
+      "small": "14px",
+      "tiny": "12px"
+    },
+    "line_heights": {
+      "headings": "1.2",
+      "body": "1.5"
+    }
+  },
+  "color_palette": {
+    "backgrounds": {
+      "app_bg": "#F9FAFB",
+      "card_bg": "#FFFFFF",
+      "bottom_nav": "#FFFFFF"
+    },
+    "brand_primary": {
+      "main": "#6366F1",
+      "light": "#E0E7FF",
+      "dark": "#4338CA"
+    },
+    "text": {
+      "primary": "#111827",
+      "secondary": "#4B5563",
+      "tertiary": "#9CA3AF"
+    },
+    "pastels_and_accents": {
+      "mint_green": "#D1FAE5",
+      "mint_border": "#059669",
+      "soft_peach": "#FFEDD5",
+      "peach_border": "#EA580C",
+      "lavender": "#EDE9FE",
+      "lavender_border": "#7C3AED",
+      "coral_red": "#FEE2E2",
+      "coral_border": "#DC2626",
+      "warning_yellow": "#FEF3C7",
+      "warning_border": "#D97706"
+    },
+    "borders": {
+      "default": "#111827",
+      "subtle": "#E5E7EB"
+    }
+  },
+  "spacing_and_layout": {
+    "screen_padding": 24,
+    "card_padding": 20,
+    "gap_small": 8,
+    "gap_medium": 16,
+    "gap_large": 24,
+    "border_radius": {
+      "small": 8,
+      "medium": 16,
+      "large": 24,
+      "full": 9999
+    },
+    "grid_strategy": "Mobile Bento Box. Mix 100% width hero cards with 2-column small metric cards (e.g., Attendance %). Use flexbox with gap properties."
+  },
+  "component_patterns": {
+    "cards": {
+      "style": "Flat background (white or pastel), sharp 1px dark border (#111827), and a harsh drop shadow (e.g., 4px 4px 0px #111827). This Neo-Brutalist twist keeps the UI grounded and crisp.",
+      "shadow": "4px 4px 0px #111827"
+    },
+    "buttons": {
+      "primary": {
+        "bg": "#6366F1",
+        "text": "#FFFFFF",
+        "border": "1px solid #111827",
+        "shadow": "4px 4px 0px #111827",
+        "radius": 16,
+        "height": 56
+      },
+      "secondary": {
+        "bg": "#FFFFFF",
+        "text": "#111827",
+        "border": "1px solid #111827",
+        "shadow": "2px 2px 0px #111827",
+        "radius": 16,
+        "height": 56
+      }
+    },
+    "bottom_navigation": {
+      "style": "Floating pill or solid bottom bar with top border. Active icons get a background pill (e.g., #E0E7FF) and primary color. Inactive icons are #9CA3AF.",
+      "height": 72
+    },
+    "attendance_toggle": {
+      "present_state": { "bg": "#D1FAE5", "border": "#059669", "text": "#065F46" },
+      "absent_state": { "bg": "#FEE2E2", "border": "#DC2626", "text": "#991B1B" },
+      "late_state": { "bg": "#FEF3C7", "border": "#D97706", "text": "#92400E" }
+    },
+    "inputs": {
+      "height": 56,
+      "bg": "#F9FAFB",
+      "border": "1px solid #111827",
+      "focus_border": "#6366F1",
+      "radius": 12
+    }
+  },
+  "role_specific_dashboards": {
+    "Admin": {
+      "focus": "High-level metrics, charts. Density is medium. Use wide cards for 'Total Fees' and small bento cards for 'Attendance %'. Accent color: Indigo."
+    },
+    "Teacher": {
+      "focus": "Task-oriented. Prominent 'Mark Attendance' CTA and 'Today's Classes' timeline. Accent color: Mint Green."
+    },
+    "Student": {
+      "focus": "Consumption & clarity. Timetable, next class, current attendance streak. Accent color: Soft Peach."
+    },
+    "Parent": {
+      "focus": "Alerts & summaries. Fee dues (Coral Red alerts), child performance cards. Accent color: Lavender."
+    }
+  },
+  "icons_and_assets": {
+    "icon_library": "@expo/vector-icons (Feather)",
+    "images": {
+      "onboarding_hero": {
+        "url": "https://images.unsplash.com/photo-1595327526317-f4754dd9d079?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHw0fHxtb2Rlcm4lMjBzY2hvb2wlMjBidWlsZGluZyUyMGRheWxpZ2h0fGVufDB8fHx8MTc3NjU3NTIwOHww&ixlib=rb-4.1.0&q=85",
+        "description": "Modern school building daylight, use for login background or onboarding."
+      },
+      "dashboard_students": {
+        "url": "https://images.pexels.com/photos/8617834/pexels-photo-8617834.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Diverse students in classroom smiling. Good for 'Student Management' section headers."
+      },
+      "teacher_placeholder": {
+        "url": "https://images.unsplash.com/photo-1758270704524-596810e891b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwxfHxkaXZlcnNlJTIwc3R1ZGVudHMlMjBpbiUyMGNsYXNzcm9vbSUyMHNtaWxpbmd8ZW58MHx8fHwxNzc2NTc1MjA4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Students/Teacher in a lecture hall. Use for 'Teacher Management' empty state or header."
+      }
+    }
+  },
+  "accessibility_and_motion": {
+    "touch_targets": "Minimum 48x48px for all interactive elements.",
+    "contrast": "Text over pastel backgrounds must use primary dark #111827 to pass APCA/WCAG ratios.",
+    "motion": "Use React Native LayoutAnimation or Reanimated for smooth bottom sheet transitions and scale-down effects on button press (scale to 0.95)."
+  },
+  "instructions_to_main_agent": [
+    "This is a React Native Expo application. Map the provided spacing and color rules to React Native StyleSheet objects or NativeWind classes depending on the stack.",
+    "Do NOT use 'Inter', 'Roboto', or 'Open Sans'. Use 'Outfit' for headers and 'Manrope' for body text via expo-google-fonts.",
+    "Implement the 'Neo-Brutalist' card style: flat pastel backgrounds with a sharp 1px dark border and a solid dark shadow (e.g., shadowOffset: { width: 4, height: 4 }, shadowOpacity: 1, shadowRadius: 0).",
+    "Ensure all interactive components (buttons, toggles, cards) include 'testID' attributes (e.g., testID='login-form-submit-button').",
+    "For the Attendance toggle, use the specific pastel state colors defined in component_patterns.",
+    "Use @expo/vector-icons (Feather) for all iconography.",
+    "Avoid generic fully-transparent overlays. If placing text over images, use a solid pastel box or heavy blur (if supported)."
+  ]
+}
